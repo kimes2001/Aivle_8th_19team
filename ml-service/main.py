@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 import battery
-import windshield  # ✅ 추가
+import windshield  # ✅ 윈드실드 분류 모델
 
 app = FastAPI(title="ML Service API", version="1.0.0")
 
@@ -15,6 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =========================
+# Startup
+# =========================
 @app.on_event("startup")
 def startup_event():
     print("서버 시작: 모델 로딩 중...")
@@ -22,6 +25,9 @@ def startup_event():
     windshield.load_windshield_models()
     print("모델 로딩 완료")
 
+# =========================
+# Health
+# =========================
 @app.get("/")
 def read_root():
     return {"message": "ML Service API is running"}
@@ -35,7 +41,9 @@ def health():
         "windshield_right_loaded": windshield.right_model is not None,
     }
 
-# 기존 배터리 예측 유지
+# =========================
+# Battery (기존 유지)
+# =========================
 @app.post("/predict")
 def predict_battery_endpoint(data: battery.BatteryPredictionRequest):
     try:
@@ -44,29 +52,35 @@ def predict_battery_endpoint(data: battery.BatteryPredictionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ 윈드실드 예측 추가
+# =========================
+# Windshield (분류 0/1)
+# =========================
 @app.post("/api/v1/smartfactory/windshield")
 async def predict_windshield_endpoint(
-    side: str = Form(...),        # "Left" or "Right"
+    side: str = Form(...),        # "Left" | "Right"
     file: UploadFile = File(...), # CSV
 ):
     try:
+        # ✅ side 정규화
         s = side.strip().lower()
         if s not in ("left", "right"):
             raise HTTPException(status_code=400, detail="side must be 'Left' or 'Right'")
 
         csv_bytes = await file.read()
-        pred_mm, judgement = windshield.predict_thickness_from_csv(s, csv_bytes)
 
+        # ✅ 0/1 분류 예측
+        prediction, judgement = windshield.predict_from_csv(s, csv_bytes)
 
         return {
-            "predicted_thickness_mm": float(pred_mm),
-            "judgement": judgement,  # PASS | FAIL
+            "prediction": prediction,   # 0 | 1
+            "judgement": judgement,     # PASS | FAIL
         }
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
