@@ -4,6 +4,7 @@ import uvicorn
 
 import battery
 import windshield  # ✅ 윈드실드 분류 모델
+import engine      # ✅ 엔진 진동 모델
 
 app = FastAPI(title="ML Service API", version="1.0.0")
 
@@ -23,6 +24,7 @@ def startup_event():
     print("서버 시작: 모델 로딩 중...")
     battery.load_battery_models()
     windshield.load_windshield_models()
+    engine.load_engine_model()
     print("모델 로딩 완료")
 
 # =========================
@@ -39,6 +41,7 @@ def health():
         "battery_models_loaded": battery.model is not None,
         "windshield_left_loaded": windshield.left_model is not None,
         "windshield_right_loaded": windshield.right_model is not None,
+        "engine_loaded": engine.model is not None,
     }
 
 # =========================
@@ -74,6 +77,29 @@ async def predict_windshield_endpoint(
         return {
             "prediction": prediction,   # 0 | 1
             "judgement": judgement,     # PASS | FAIL
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =========================
+# Engine Vibration (분류 0/1)
+# =========================
+@app.post("/api/v1/smartfactory/engine")
+async def predict_engine_endpoint(
+    file: UploadFile = File(...),  # ARFF
+):
+    try:
+        arff_bytes = await file.read()
+
+        # ✅ 0/1 분류 예측
+        prediction, judgement = engine.predict_from_arff(arff_bytes)
+
+        return {
+            "prediction": prediction,   # 0 | 1
+            "judgement": judgement,     # NORMAL | ABNORMAL
         }
 
     except HTTPException:
