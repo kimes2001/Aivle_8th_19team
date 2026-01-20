@@ -294,7 +294,7 @@ export function EngineAssemblyDashboard() {
               </div>
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">윈드실드 사이드 몰딩 공정</h2>
-                <p className="text-gray-600 mt-1">AI 모델 실시간 품질 판정</p>
+                <p className="text-gray-600 mt-1">윈드실드 실시간 품질 판정</p>
               </div>
             </div>
 
