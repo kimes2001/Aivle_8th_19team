@@ -13,6 +13,7 @@ export function Sidebar({ username, onLogout }: SidebarProps) {
     { path: '/', label: '메인 대시보드', icon: LayoutDashboard },
     { path: '/press', label: '프레스 머신', icon: Factory },
     { path: '/engine', label: '엔진 조립', icon: Cpu },
+    { path: '/engine-vibration', label: '엔진 진동', icon:Cpu },
     { path: '/body', label: '차체 조립', icon: Box },
     { path: '/paint', label: '도장 품질', icon: Droplet },
     { path: '/battery', label: '배터리 예지보전', icon: Battery },

@@ -5,6 +5,7 @@ import { SignupPage } from './components/SignupPage';
 import { Sidebar } from './components/Sidebar';
 import { PressMachineDashboard } from './components/PressMachineDashboard';
 import { EngineAssemblyDashboard } from './components/EngineAssemblyDashboard';
+import { EngineVibrationDashboard } from './components/EngineVibrationDashboard';
 import { BodyAssemblyDashboard } from './components/BodyAssemblyDashboard';
 import { PaintQualityDashboard } from './components/PaintQualityDashboard';
 import { FacilityDashboard } from './components/FacilityDashboard';
@@ -85,6 +86,7 @@ export default function App() {
                 <Route path="/" element={<MainDashboard />} />
                 <Route path="/press" element={<PressMachineDashboard />} />
                 <Route path="/engine" element={<EngineAssemblyDashboard />} />
+                <Route path="/engine-vibration" element={<EngineVibrationDashboard />} />
                 <Route path="/body" element={<BodyAssemblyDashboard />} />
                 <Route path="/paint" element={<PaintQualityDashboard />} />
                 <Route path="/battery" element={<BatteryDashboard />} />
