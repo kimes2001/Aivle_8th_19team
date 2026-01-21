@@ -1,71 +1,53 @@
+# welding_image/__init__.py
 import os
-import io
-from PIL import Image
-from ultralytics import YOLO
+import uuid
+import shutil
+from fastapi import UploadFile, HTTPException
 
-# =========================
-# Models
-# =========================
+from . import models              # ✅ 모듈로 import
+from .pipeline import full_pipeline
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-STAGE1_MODEL_PATH = os.path.join(BASE_DIR, "stage1_best.pt")
-STAGE2_MODEL_PATH = os.path.join(BASE_DIR, "stage2_best.pt")
+ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-stage1_model = None
-stage2_model = None
 
 def load_welding_image_models():
-    global stage1_model, stage2_model
-    stage1_model = YOLO(STAGE1_MODEL_PATH)
-    stage2_model = YOLO(STAGE2_MODEL_PATH)
+    # ✅ 모델 로딩 함수는 models.py에 있는 걸 호출
+    models.load_welding_image_models()
 
-# =========================
-# Internal inference
-# =========================
-def _infer(model: YOLO, image_bytes: bytes, conf: float, iou: float):
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    results = model.predict(img, conf=conf, iou=iou, verbose=False)
 
-    r = results[0]
-    names = r.names
+def stage1_loaded() -> bool:
+    return models.stage1_model is not None
 
-    defects = []
-    if r.boxes is not None and len(r.boxes) > 0:
-        for b in r.boxes:
-            cls = int(b.cls[0].item())
-            defects.append({
-                "class": names.get(cls, str(cls)),
-                "confidence": float(b.conf[0].item()),
-                "bbox": b.xyxy[0].tolist(),  # [x1, y1, x2, y2]
-            })
 
-    status = "DEFECT" if len(defects) > 0 else "NORMAL"
-    return {"status": status, "defects": defects}
+def stage2_loaded() -> bool:
+    return models.stage2_model is not None
 
-# =========================
-# Stage1 (normal vs defect)
-# =========================
-def predict_stage1(image_bytes: bytes, conf: float = 0.25, iou: float = 0.7):
-    if stage1_model is None:
-        raise RuntimeError("Stage1 welding image model not loaded")
 
-    result = _infer(stage1_model, image_bytes, conf, iou)
+async def predict_welding_image(file: UploadFile):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Empty filename")
 
-    # Stage1은 defect 단일 클래스
-    if result["status"] == "DEFECT":
-        for d in result["defects"]:
-            d["class"] = "defect"
-    else:
-        result["defects"] = []
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail=f"Invalid image format: {ext}")
 
-    return result
+    # ✅ 안전장치: 로딩 안 되어있으면 로딩
+    if not stage1_loaded() or not stage2_loaded():
+        load_welding_image_models()
 
-# =========================
-# Stage2 (6-class defect)
-# =========================
-def predict_stage2(image_bytes: bytes, conf: float = 0.25, iou: float = 0.7):
-    if stage2_model is None:
-        raise RuntimeError("Stage2 welding image model not loaded")
+    save_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}{ext}")
 
-    return _infer(stage2_model, image_bytes, conf, iou)
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    result = full_pipeline(save_path)
+
+    return {
+        "status": result["status"],
+        "defects": result["defects"],
+        "image_path": save_path
+    }
