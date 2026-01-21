@@ -4,7 +4,7 @@ import { LoginPage } from './components/LoginPage';
 import { SignupPage } from './components/SignupPage';
 import { Sidebar } from './components/Sidebar';
 import { PressMachineDashboard } from './components/PressMachineDashboard';
-import { EngineAssemblyDashboard } from './components/EngineAssemblyDashboard';
+import { WindShieldDashboard } from './components/WindShieldDashboard';
 import { EngineVibrationDashboard } from './components/EngineVibrationDashboard';
 import { BodyAssemblyDashboard } from './components/BodyAssemblyDashboard';
 import { PaintQualityDashboard } from './components/PaintQualityDashboard';
@@ -85,7 +85,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<MainDashboard />} />
                 <Route path="/press" element={<PressMachineDashboard />} />
-                <Route path="/engine" element={<EngineAssemblyDashboard />} />
+                <Route path="/windshield" element={<WindShieldDashboard />} />
                 <Route path="/engine-vibration" element={<EngineVibrationDashboard />} />
                 <Route path="/body" element={<BodyAssemblyDashboard />} />
                 <Route path="/paint" element={<PaintQualityDashboard />} />

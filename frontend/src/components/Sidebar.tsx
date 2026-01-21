@@ -12,7 +12,7 @@ export function Sidebar({ username, onLogout }: SidebarProps) {
   const menuItems = [
     { path: '/', label: '메인 대시보드', icon: LayoutDashboard },
     { path: '/press', label: '프레스 머신', icon: Factory },
-    { path: '/engine', label: '엔진 조립', icon: Cpu },
+    { path: '/windshield', label: '윈드실드', icon: Cpu },
     { path: '/engine-vibration', label: '엔진 진동', icon:Cpu },
     { path: '/body', label: '차체 조립', icon: Box },
     { path: '/paint', label: '도장 품질', icon: Droplet },

@@ -55,7 +55,7 @@ function makeSingleRowCsvBlob(row: string): Blob {
   return new Blob([content], { type: "text/csv" });
 }
 
-export function EngineAssemblyDashboard() {
+export function WindShieldDashboard() {
   const [side, setSide] = useState<Side>("Left");
 
   // ✅ 모니터링(데모 스트림)
