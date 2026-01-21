@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 import battery
 import windshield  # ✅ 윈드실드 분류 모델
 import engine      # ✅ 엔진 진동 모델
+import welding_image
 
 app = FastAPI(title="ML Service API", version="1.0.0")
 
@@ -25,6 +26,7 @@ def startup_event():
     battery.load_battery_models()
     windshield.load_windshield_models()
     engine.load_engine_model()
+    welding_image.load_welding_image_models()
     print("모델 로딩 완료")
 
 # =========================
@@ -42,6 +44,8 @@ def health():
         "windshield_left_loaded": windshield.left_model is not None,
         "windshield_right_loaded": windshield.right_model is not None,
         "engine_loaded": engine.model is not None,
+        "welding_stage1_loaded": welding_image.stage1_model is not None,
+        "welding_stage2_loaded": welding_image.stage2_model is not None,
     }
 
 # =========================
@@ -107,6 +111,37 @@ async def predict_engine_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# =========================
+# Welding Image Stage1
+# =========================
+@app.post("/api/v1/welding/image/stage1")
+async def predict_welding_image_stage1(
+    file: UploadFile = File(...),
+    conf: float = Query(0.25, ge=0.0, le=1.0),
+    iou: float = Query(0.7, ge=0.0, le=1.0),
+):
+    try:
+        img_bytes = await file.read()
+        return welding_image.predict_stage1(img_bytes, conf, iou)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================
+# Welding Image Stage2
+# =========================
+@app.post("/api/v1/welding/image/stage2")
+async def predict_welding_image_stage2(
+    file: UploadFile = File(...),
+    conf: float = Query(0.25, ge=0.0, le=1.0),
+    iou: float = Query(0.7, ge=0.0, le=1.0),
+):
+    try:
+        img_bytes = await file.read()
+        return welding_image.predict_stage2(img_bytes, conf, iou)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
