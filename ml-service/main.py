@@ -1,11 +1,20 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
+import os
+import shutil
+import uuid
+import traceback
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 import battery
-import windshield  # ✅ 윈드실드 분류 모델
-import engine      # ✅ 엔진 진동 모델
-import welding_image
+import windshield
+import engine
+
+# ✅ welding_image는 "본래 welding-image FastAPI 계약"을 그대로 제공하는 모듈로 구성
+from welding_image.pipeline import full_pipeline
+from welding_image.schemas import DefectResponse
 
 app = FastAPI(title="ML Service API", version="1.0.0")
 
@@ -18,16 +27,46 @@ app.add_middleware(
 )
 
 # =========================
+# Static / Directories (본래와 동일한 방식)
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+# ✅ 핵심: BASE_DIR 전체를 /static 으로 서빙
+# - temp/xxx.jpg -> /static/temp/xxx.jpg
+# - welding_image/runs/predict/yyy.jpg -> /static/welding_image/runs/predict/yyy.jpg
+app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
+
+
+def to_public_url(abs_path: str) -> str:
+    """
+    abs_path(절대경로) -> /static/상대경로
+    """
+    rel = os.path.relpath(abs_path, BASE_DIR).replace("\\", "/")
+    return "/static/" + rel
+
+
+# =========================
 # Startup
 # =========================
 @app.on_event("startup")
 def startup_event():
     print("서버 시작: 모델 로딩 중...")
-    battery.load_battery_models()
-    windshield.load_windshield_models()
-    engine.load_engine_model()
-    welding_image.load_welding_image_models()
-    print("모델 로딩 완료")
+    try:
+        battery.load_battery_models()
+        windshield.load_windshield_models()
+        engine.load_engine_model()
+
+        # ✅ welding 모델은 pipeline 내부에서 lazy load(또는 import 시 load)되도록 구성
+        print("모델 로딩 완료")
+    except Exception:
+        print("=== STARTUP ERROR ===")
+        traceback.print_exc()
+        raise
+
 
 # =========================
 # Health
@@ -40,13 +79,12 @@ def read_root():
 def health():
     return {
         "status": "ok",
-        "battery_models_loaded": battery.model is not None,
-        "windshield_left_loaded": windshield.left_model is not None,
-        "windshield_right_loaded": windshield.right_model is not None,
-        "engine_loaded": engine.model is not None,
-        "welding_stage1_loaded": welding_image.stage1_loaded(),
-        "welding_stage2_loaded": welding_image.stage2_loaded(),
+        "battery_models_loaded": getattr(battery, "model", None) is not None,
+        "windshield_left_loaded": getattr(windshield, "left_model", None) is not None,
+        "windshield_right_loaded": getattr(windshield, "right_model", None) is not None,
+        "engine_loaded": getattr(engine, "model", None) is not None,
     }
+
 
 # =========================
 # Battery (기존 유지)
@@ -59,61 +97,108 @@ def predict_battery_endpoint(data: battery.BatteryPredictionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =========================
-# Windshield (분류 0/1)
+# Windshield (기존 유지)
 # =========================
 @app.post("/api/v1/smartfactory/windshield")
 async def predict_windshield_endpoint(
-    side: str = Form(...),        # "Left" | "Right"
-    file: UploadFile = File(...), # CSV
+    side: str = Form(...),
+    file: UploadFile = File(...),
 ):
     try:
-        # ✅ side 정규화
         s = side.strip().lower()
         if s not in ("left", "right"):
             raise HTTPException(status_code=400, detail="side must be 'Left' or 'Right'")
 
         csv_bytes = await file.read()
-
-        # ✅ 0/1 분류 예측
         prediction, judgement = windshield.predict_from_csv(s, csv_bytes)
-
-        return {
-            "prediction": prediction,   # 0 | 1
-            "judgement": judgement,     # PASS | FAIL
-        }
-
+        return {"prediction": prediction, "judgement": judgement}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =========================
-# Engine Vibration (분류 0/1)
+# Engine (기존 유지)
 # =========================
 @app.post("/api/v1/smartfactory/engine")
-async def predict_engine_endpoint(
-    file: UploadFile = File(...),  # ARFF
-):
+async def predict_engine_endpoint(file: UploadFile = File(...)):
     try:
         arff_bytes = await file.read()
-
-        # ✅ 0/1 분류 예측
         prediction, judgement = engine.predict_from_arff(arff_bytes)
-
-        return {
-            "prediction": prediction,   # 0 | 1
-            "judgement": judgement,     # NORMAL | ABNORMAL
-        }
-
+        return {"prediction": prediction, "judgement": judgement}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/smartfactory/welding/image")
-async def predict_welding_image_endpoint(
-    file: UploadFile = File(...)
-):
-    return await welding_image.predict_welding_image(file)
+# =========================
+# Welding Image (본래 welding-image FastAPI 계약과 동일)
+# - 입력: file
+# - 출력: status, defects, original_image_url, result_image_url
+# =========================
+async def _welding_predict_core(file: UploadFile) -> DefectResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is empty")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+
+    temp_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}{ext}")
+
+    # ✅ 원본 저장
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # ✅ pipeline 실행
+    # result = {"status": ..., "defects": ..., "result_image_path": ...}
+    result = full_pipeline(temp_path)
+
+    # ✅ 원본 이미지 URL
+    original_url = to_public_url(temp_path)
+
+    # ✅ 결과 이미지 URL (runs/predict에 저장된 경로를 /static/... 으로 노출)
+    result_url = None
+    if result.get("result_image_path"):
+        result_url = to_public_url(result["result_image_path"])
+
+    return DefectResponse(
+        status=result["status"],
+        defects=result["defects"],
+        original_image_url=original_url,
+        result_image_url=result_url,
+    )
+
+
+# ✅ 본래 경로
+@app.post("/api/v1/welding/image", response_model=DefectResponse)
+async def predict_welding_original(file: UploadFile = File(...)):
+    try:
+        return await _welding_predict_core(file)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("=== WELDING ERROR ===")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ✅ 통합 경로(프론트가 쓰는 경로)
+@app.post("/api/v1/smartfactory/welding/image", response_model=DefectResponse)
+async def predict_welding_smartfactory(file: UploadFile = File(...)):
+    try:
+        return await _welding_predict_core(file)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("=== WELDING ERROR ===")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

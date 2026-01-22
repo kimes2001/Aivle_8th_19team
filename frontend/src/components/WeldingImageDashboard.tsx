@@ -1,22 +1,22 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type Defect = {
   class: string;
   confidence: number;
-  bbox: number[]; // stage1은 []일 수도 있어서 유연하게
+  bbox: number[]; // [x1,y1,x2,y2]
 };
 
 type WeldingResponse = {
   status: "NORMAL" | "DEFECT";
   defects: Defect[];
+  original_image_url: string;        // ✅ 추가
+  result_image_url: string | null;   // ✅ 추가 (NORMAL이면 null 가능)
 };
 
-const API_BASE = ""; // vite proxy면 "" 유지
+// ✅ 윈드실드처럼 "직접 8000"으로 때리는 방식 (프록시 안 씀)
+const ENDPOINT = "http://localhost:8000/api/v1/smartfactory/welding/image";
 
 export function WeldingImageDashboard() {
-  const [stage1Conf, setStage1Conf] = useState(0.05);
-  const [stage2Conf, setStage2Conf] = useState(0.25);
-
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
 
@@ -24,10 +24,6 @@ export function WeldingImageDashboard() {
   const [result, setResult] = useState<WeldingResponse | null>(null);
   const [error, setError] = useState<string>("");
   const [debugText, setDebugText] = useState<string>("");
-
-  const endpoint = useMemo(() => {
-    return `${API_BASE}/api/v1/welding/image?stage1_conf=${stage1Conf}&stage2_conf=${stage2Conf}`;
-  }, [stage1Conf, stage2Conf]);
 
   // preview url cleanup
   useEffect(() => {
@@ -73,11 +69,10 @@ export function WeldingImageDashboard() {
         `%c[WeldingImage] Request ${requestId}`,
         "color:#2563eb;font-weight:700;"
       );
-      console.log("endpoint:", endpoint);
+      console.log("endpoint:", ENDPOINT);
       console.log("file:", { name: file.name, type: file.type, size: file.size });
-      console.log("params:", { stage1Conf, stage2Conf });
 
-      const res = await fetch(endpoint, { method: "POST", body: form });
+      const res = await fetch(ENDPOINT, { method: "POST", body: form });
 
       const elapsed = Math.round(performance.now() - startedAt);
       console.log("status:", res.status, res.statusText, `(${elapsed}ms)`);
@@ -85,15 +80,13 @@ export function WeldingImageDashboard() {
       const text = await res.text();
       console.log("raw body:", text);
 
-      // UI용 debug 텍스트도 저장
       setDebugText(
         JSON.stringify(
           {
             requestId,
-            endpoint,
+            endpoint: ENDPOINT,
             elapsedMs: elapsed,
             file: { name: file.name, type: file.type, size: file.size },
-            params: { stage1Conf, stage2Conf },
             http: { status: res.status, statusText: res.statusText },
             rawBody: text,
           },
@@ -108,12 +101,21 @@ export function WeldingImageDashboard() {
           const j = JSON.parse(text);
           detail = j?.detail ? String(j.detail) : text;
         } catch {}
-        throw new Error(`HTTP ${res.status} - ${detail}`);
+        throw new Error(`HTTP ${res.status} - ${detail || "no body"}`);
       }
 
       const json = JSON.parse(text) as WeldingResponse;
-      console.log("parsed json:", json);
-      setResult(json);
+
+      // 최소 방어
+      const safe: WeldingResponse = {
+        status: json?.status === "DEFECT" ? "DEFECT" : "NORMAL",
+        defects: Array.isArray(json?.defects) ? json.defects : [],
+        original_image_url: String(json?.original_image_url ?? ""),
+        result_image_url: json?.result_image_url ?? null,
+      };
+
+      console.log("parsed json:", safe);
+      setResult(safe);
     } catch (e: any) {
       console.error(`[WeldingImage] Error ${requestId}`, e);
       setError(e?.message ?? "요청 중 오류 발생");
@@ -133,50 +135,28 @@ export function WeldingImageDashboard() {
     }
   };
 
+  // ✅ 서버가 내려주는 /static/... 은 절대경로로 변환해서 img src에 넣기
+  const originalUrl = result?.original_image_url
+    ? `http://localhost:8000${result.original_image_url}`
+    : "";
+
+  const resultUrl = result?.result_image_url
+    ? `http://localhost:8000${result.result_image_url}`
+    : "";
+
   return (
     <div className="p-6 space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold">용접 이미지 결함 탐지</h1>
         <p className="text-sm text-gray-600">
-          자동 분석: Stage1(결함 여부) → 결함일 때만 Stage2(상세 분류) 수행
+          로컬 ML FastAPI(<span className="font-mono">localhost:8000</span>)를 직접 호출합니다.
+          예측 결과 이미지는 <span className="font-mono">/static/welding_image/runs/predict</span>로 서빙됩니다.
         </p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Controls */}
         <div className="bg-white rounded-xl shadow p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">stage1_conf</label>
-              <input
-                className="w-full"
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={stage1Conf}
-                onChange={(e) => setStage1Conf(parseFloat(e.target.value))}
-              />
-              <div className="text-xs text-gray-600">{stage1Conf.toFixed(2)}</div>
-              <div className="text-[11px] text-gray-500">낮을수록 결함을 더 잘 잡음(오탐↑)</div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">stage2_conf</label>
-              <input
-                className="w-full"
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={stage2Conf}
-                onChange={(e) => setStage2Conf(parseFloat(e.target.value))}
-              />
-              <div className="text-xs text-gray-600">{stage2Conf.toFixed(2)}</div>
-              <div className="text-[11px] text-gray-500">높을수록 오탐↓(미탐↑)</div>
-            </div>
-          </div>
-
           <div>
             <label className="text-sm font-medium">이미지 업로드</label>
             <input
@@ -219,24 +199,56 @@ export function WeldingImageDashboard() {
           )}
 
           <div className="text-xs text-gray-500">
-            호출 URL: <span className="font-mono break-all">{endpoint}</span>
+            호출 URL: <span className="font-mono break-all">{ENDPOINT}</span>
           </div>
         </div>
 
         {/* Preview */}
-        <div className="bg-white rounded-xl shadow p-5">
-          <div className="text-sm font-medium mb-3">미리보기</div>
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt="preview"
-              className="w-full max-h-[420px] object-contain rounded border"
-            />
-          ) : (
-            <div className="h-[320px] flex items-center justify-center text-gray-400 border rounded">
-              이미지가 없습니다.
-            </div>
-          )}
+        <div className="bg-white rounded-xl shadow p-5 space-y-4">
+          <div>
+            <div className="text-sm font-medium mb-2">업로드 미리보기(로컬)</div>
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt="preview"
+                className="w-full max-h-[240px] object-contain rounded border"
+              />
+            ) : (
+              <div className="h-[180px] flex items-center justify-center text-gray-400 border rounded">
+                이미지가 없습니다.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-sm font-medium mb-2">서버 저장 원본</div>
+            {originalUrl ? (
+              <img
+                src={originalUrl}
+                alt="original"
+                className="w-full max-h-[240px] object-contain rounded border"
+              />
+            ) : (
+              <div className="h-[120px] flex items-center justify-center text-gray-400 border rounded">
+                아직 없습니다.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-sm font-medium mb-2">예측 결과 이미지(annotated)</div>
+            {resultUrl ? (
+              <img
+                src={resultUrl}
+                alt="result"
+                className="w-full max-h-[240px] object-contain rounded border"
+              />
+            ) : (
+              <div className="h-[120px] flex items-center justify-center text-gray-400 border rounded">
+                결과 이미지가 없습니다.
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -276,7 +288,7 @@ export function WeldingImageDashboard() {
                 {result.defects.map((d, idx) => (
                   <tr key={idx} className="border-b last:border-0">
                     <td className="py-2 pr-4 font-medium">{d.class}</td>
-                    <td className="py-2 pr-4">{d.confidence.toFixed(4)}</td>
+                    <td className="py-2 pr-4">{Number(d.confidence).toFixed(4)}</td>
                     <td className="py-2 pr-4 font-mono text-xs">
                       {Array.isArray(d.bbox) && d.bbox.length === 4
                         ? `[${d.bbox.map((v) => Number(v).toFixed(2)).join(", ")}]`
@@ -289,7 +301,7 @@ export function WeldingImageDashboard() {
           </div>
         )}
 
-        {/* Debug panel (optional) */}
+        {/* Debug panel */}
         {debugText && (
           <div className="mt-4">
             <div className="flex items-center justify-between">

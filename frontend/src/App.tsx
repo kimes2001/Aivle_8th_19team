@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar';
 import { PressMachineDashboard } from './components/PressMachineDashboard';
 import { WindShieldDashboard } from './components/WindShieldDashboard';
 import { EngineVibrationDashboard } from './components/EngineVibrationDashboard';
+import { WeldingImageDashboard } from './components/WeldingImageDashboard';
 import { BodyAssemblyDashboard } from './components/BodyAssemblyDashboard';
 import { PaintQualityDashboard } from './components/PaintQualityDashboard';
 import { FacilityDashboard } from './components/FacilityDashboard';
@@ -85,6 +86,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<MainDashboard />} />
                 <Route path="/press" element={<PressMachineDashboard />} />
+                <Route path="/welding-image" element={<WeldingImageDashboard />} />
                 <Route path="/windshield" element={<WindShieldDashboard />} />
                 <Route path="/engine-vibration" element={<EngineVibrationDashboard />} />
                 <Route path="/body" element={<BodyAssemblyDashboard />} />
