@@ -7,10 +7,12 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+from fastapi.responses import JSONResponse
 
 import battery
 import windshield
 import engine
+from paint import service as paint_service
 
 # ✅ welding_image는 "본래 welding-image FastAPI 계약"을 그대로 제공하는 모듈로 구성
 from welding_image.pipeline import full_pipeline
@@ -25,6 +27,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 # =========================
 # Static / Directories (본래와 동일한 방식)
@@ -59,7 +63,8 @@ def startup_event():
         battery.load_battery_models()
         windshield.load_windshield_models()
         engine.load_engine_model()
-
+        global PAINT_CFG
+        PAINT_CFG = paint_service.load_paint_model(BASE_DIR)
         # ✅ welding 모델은 pipeline 내부에서 lazy load(또는 import 시 load)되도록 구성
         print("모델 로딩 완료")
     except Exception:
@@ -83,6 +88,7 @@ def health():
         "windshield_left_loaded": getattr(windshield, "left_model", None) is not None,
         "windshield_right_loaded": getattr(windshield, "right_model", None) is not None,
         "engine_loaded": getattr(engine, "model", None) is not None,
+        "paint_loaded": getattr(paint_service, "model", None) is not None,
     }
 
 
@@ -200,5 +206,26 @@ async def predict_welding_smartfactory(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/smartfactory/paint")
+async def predict_paint_endpoint(file: UploadFile = File(...)):
+    try:
+        if PAINT_CFG is None:
+            raise HTTPException(status_code=500, detail="paint config not initialized")
+
+        result = paint_service.predict_paint_defect(
+            file_obj=file.file,
+            original_filename=file.filename,
+            base_dir=BASE_DIR,
+            save_image_dir=PAINT_CFG["SAVE_IMAGE_DIR"],
+            save_label_dir=PAINT_CFG["SAVE_LABEL_DIR"],
+            save_result_dir=PAINT_CFG["SAVE_RESULT_DIR"],
+            backend_url="http://localhost:3001/api/paint-analysis",  # 필요하면 env로 빼기
+        )
+        return JSONResponse(status_code=200, content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
